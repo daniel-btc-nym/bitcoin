@@ -95,17 +95,23 @@ enum jtokentype getJsonToken(std::string& tokenVal, unsigned int& consumed,
         return JTOK_COMMA;
 
     case 'n':
-    case 't':
-    case 'f':
-        if (!strncmp(raw, "null", 4)) {
+        if (raw + 4 <= end && !strncmp(raw, "null", 4)) {
             raw += 4;
             consumed = (raw - rawStart);
             return JTOK_KW_NULL;
-        } else if (!strncmp(raw, "true", 4)) {
+        } else 
+          return JTOK_ERR;
+
+    case 't':
+        if (raw + 4 <= end && !strncmp(raw, "true", 4)) {
             raw += 4;
             consumed = (raw - rawStart);
             return JTOK_KW_TRUE;
-        } else if (!strncmp(raw, "false", 5)) {
+        } else
+            return JTOK_ERR;
+        
+    case 'f':
+        if (raw + 5 <= end && !strncmp(raw, "false", 5)) {
             raw += 5;
             consumed = (raw - rawStart);
             return JTOK_KW_FALSE;
