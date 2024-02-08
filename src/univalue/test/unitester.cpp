@@ -156,6 +156,36 @@ void no_nul_test()
     assert(val.read({buf + 3, 7}));
 }
 
+void raw_equal_end()
+{
+    std::string tokenVal = "";
+    unsigned int consumed = 0;
+    char foo = '[';
+    enum jtokentype result = getJsonToken(tokenVal, consumed, &foo, &foo);
+    assert(result == JTOK_NONE);
+    assert(consumed == 0);
+    assert(tokenVal == "");
+}
+
+void no_reading_beyond_end_test(const char* buf, unsigned int size, enum jtokentype expectedResult)
+{
+    std::string tokenVal = "";
+    unsigned int consumed = 0;
+
+    for(unsigned int i = 1; i < size; ++i) {
+        enum jtokentype result = getJsonToken(tokenVal, consumed, buf, buf + i);
+        assert(result == JTOK_ERR);
+        assert(consumed == 0);
+        assert(tokenVal == "");
+    }
+
+    // If end points to the end, we are good and it should be read.
+    enum jtokentype result = getJsonToken(tokenVal, consumed, buf, buf + sizeof(buf));
+    assert(result == expectedResult);
+    assert(consumed == size);
+    assert(tokenVal == "");
+}
+
 int main (int argc, char *argv[])
 {
     for (const auto& f: filenames) {
@@ -164,6 +194,10 @@ int main (int argc, char *argv[])
 
     unescape_unicode_test();
     no_nul_test();
+    raw_equal_end();
+    no_reading_beyond_end_test("true", 4, JTOK_KW_TRUE);
+    no_reading_beyond_end_test("null", 4, JTOK_KW_NULL);
+    no_reading_beyond_end_test("false", 5, JTOK_KW_FALSE);
 
     return 0;
 }

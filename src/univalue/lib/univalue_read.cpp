@@ -5,6 +5,7 @@
 #include <univalue.h>
 #include <univalue_utffilter.h>
 
+#include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -95,17 +96,23 @@ enum jtokentype getJsonToken(std::string& tokenVal, unsigned int& consumed,
         return JTOK_COMMA;
 
     case 'n':
-    case 't':
-    case 'f':
-        if (!strncmp(raw, "null", 4)) {
+        if (raw + 4 <= end && !strncmp(raw, "null", 4)) {
             raw += 4;
             consumed = (raw - rawStart);
             return JTOK_KW_NULL;
-        } else if (!strncmp(raw, "true", 4)) {
+        } else
+          return JTOK_ERR;
+
+    case 't':
+        if (raw + 4 <= end && !strncmp(raw, "true", 4)) {
             raw += 4;
             consumed = (raw - rawStart);
             return JTOK_KW_TRUE;
-        } else if (!strncmp(raw, "false", 5)) {
+        } else
+            return JTOK_ERR;
+
+    case 'f':
+        if (raw + 5 <= end && !strncmp(raw, "false", 5)) {
             raw += 5;
             consumed = (raw - rawStart);
             return JTOK_KW_FALSE;
@@ -123,24 +130,33 @@ enum jtokentype getJsonToken(std::string& tokenVal, unsigned int& consumed,
     case '7':
     case '8':
     case '9': {
-        // part 1: int
         std::string numStr;
-
+        // part 0: possible '-'
         const char *first = raw;
+        if (*first == '-') {
+            numStr += *first;
+            ++raw;
+            if (raw >= end)
+                return JTOK_ERR;
 
-        const char *firstDigit = first;
-        if (!json_isdigit(*firstDigit))
-            firstDigit++;
-        if ((*firstDigit == '0') && json_isdigit(firstDigit[1]))
+            if (!json_isdigit(*raw))
+                return JTOK_ERR;
+        }
+
+        // part 1: int
+        const char *firstDigit = raw;
+        // either just checked inside the if above, or
+        // we landed here for cases 0-9.
+        assert(json_isdigit(*firstDigit));
+
+        // We don't allow numbers to start with leading 0s.
+        if (raw + 1 < end && (*firstDigit == '0') && json_isdigit(firstDigit[1]))
             return JTOK_ERR;
 
-        numStr += *raw;                       // copy first char
+        numStr += *raw;                       // copy first digit
         raw++;
 
-        if ((*first == '-') && (raw < end) && (!json_isdigit(*raw)))
-            return JTOK_ERR;
-
-        while (raw < end && json_isdigit(*raw)) {  // copy digits
+        while (raw < end && json_isdigit(*raw)) {  // copy remainign digits
             numStr += *raw;
             raw++;
         }
