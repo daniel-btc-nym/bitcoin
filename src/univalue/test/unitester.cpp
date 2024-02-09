@@ -2,6 +2,7 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or https://opensource.org/licenses/mit-license.php.
 
+#include <string.h>
 #include <univalue.h>
 
 #include <cassert>
@@ -77,7 +78,7 @@ static const char *filenames[] = {
         "fail15.json",
         "fail16.json",
         "fail17.json",
-        //"fail18.json",             // investigate
+        "fail18.json",               // Open and closing [..] exceed MAX_JSON_DEPTH.
         "fail19.json",
         "fail1.json",
         "fail20.json",
@@ -117,6 +118,7 @@ static const char *filenames[] = {
         "pass2.json",
         "pass3.json",
         "pass4.json",
+        "pass5.json",               // 512 nested [..] do work: See MAX_JSON_DEPTH.
         "round1.json",              // round-trip test
         "round2.json",              // unicode
         "round3.json",              // bare string
@@ -172,6 +174,20 @@ void no_reading_beyond_end_test(const char* buf, unsigned int size, enum jtokent
     std::string tokenVal = "";
     unsigned int consumed = 0;
 
+    // With uninitialized data starting at `end`.
+    // This will cause `valgrind -tool=memcheck -s ./univalue/test/unitester`
+    // to fail if we read past end.
+    for(unsigned int i = 1; i < size; ++i) {
+        std::vector<char> copy(i);
+        ::mempcpy(copy.data(), buf, i);
+        enum jtokentype result = getJsonToken(tokenVal, consumed, copy.data(), copy.data() + i);
+        assert(result == JTOK_ERR);
+        assert(consumed == 0);
+        assert(tokenVal == "");
+    }
+
+    // With data behind the area from raw ... end. We would get different results
+    // if we consider the data past end.
     for(unsigned int i = 1; i < size; ++i) {
         enum jtokentype result = getJsonToken(tokenVal, consumed, buf, buf + i);
         assert(result == JTOK_ERR);
@@ -186,6 +202,34 @@ void no_reading_beyond_end_test(const char* buf, unsigned int size, enum jtokent
     assert(tokenVal == "");
 }
 
+void parsing_numbers_beyond_end_test(const std::string& toParse, size_t size,
+        enum jtokentype expectedResult, unsigned int expectedConsumed = 0,
+        const std::string& expectedTokenVal = "") {
+    assert(size <= toParse.size());  // The size we want to allow parsing.
+    std::vector<char> copy(size);
+    ::mempcpy(copy.data(), toParse.data(), size);
+
+    std::string tokenVal = "";
+    unsigned int consumed = 0;
+    enum jtokentype result;
+
+    // This will fail valgrind.
+    result = getJsonToken(tokenVal, consumed, copy.data(), copy.data() + size);
+    assert(result == expectedResult);
+    assert(consumed == expectedConsumed);
+    assert(tokenVal == expectedTokenVal);
+
+    // Now make a test-case that will fail also in regular mode because the code
+    // might be reading whats at end and afer.
+    tokenVal = "";
+    consumed = 0;
+    result = getJsonToken(tokenVal, consumed, toParse.data(), toParse.data() + size);
+    assert(result == expectedResult);
+    assert(consumed == expectedConsumed);
+    assert(tokenVal == expectedTokenVal);
+}
+
+
 int main (int argc, char *argv[])
 {
     for (const auto& f: filenames) {
@@ -198,6 +242,49 @@ int main (int argc, char *argv[])
     no_reading_beyond_end_test("true", 4, JTOK_KW_TRUE);
     no_reading_beyond_end_test("null", 4, JTOK_KW_NULL);
     no_reading_beyond_end_test("false", 5, JTOK_KW_FALSE);
+
+    // A single '-' not OK.
+    parsing_numbers_beyond_end_test("-0", 1, JTOK_ERR);
+    // -0 is OK.
+    parsing_numbers_beyond_end_test("-0", 2, JTOK_NUMBER, 2, "-0");
+
+    // Leading 0s not OK.
+    parsing_numbers_beyond_end_test("-01", 3, JTOK_ERR);
+    // However, OK if we are only reading 2 characters.
+    parsing_numbers_beyond_end_test("-01", 2, JTOK_NUMBER, 2, "-0");
+
+    parsing_numbers_beyond_end_test("-x", 2, JTOK_ERR);
+    parsing_numbers_beyond_end_test("-5", 2, JTOK_NUMBER, 2, "-5");
+
+    parsing_numbers_beyond_end_test("123456", 6, JTOK_NUMBER, 6, "123456");
+    // Do not read past end.
+    parsing_numbers_beyond_end_test("123456", 3, JTOK_NUMBER, 3, "123");
+
+    // Ending with . is not OK.
+    parsing_numbers_beyond_end_test("0.", 2, JTOK_ERR);
+
+    // 0.0..0 is OK.
+    parsing_numbers_beyond_end_test("0.0", 3, JTOK_NUMBER, 3, "0.0");
+    parsing_numbers_beyond_end_test("0.000", 5, JTOK_NUMBER, 5, "0.000");
+
+    // Exponents.
+    parsing_numbers_beyond_end_test("0.0e1", 5, JTOK_NUMBER, 5, "0.0e1");
+    // ending with e is not OK. Note how we only allow to read 4 characters.
+    parsing_numbers_beyond_end_test("0.0e1", 4, JTOK_ERR);
+
+    parsing_numbers_beyond_end_test("0.0e+1", 6, JTOK_NUMBER, 6, "0.0e+1");
+    parsing_numbers_beyond_end_test("0.0e-1", 6, JTOK_NUMBER, 6, "0.0e-1");
+
+    // End at end. Note how we allow only 5 characters.
+    parsing_numbers_beyond_end_test("0.0231", 5, JTOK_NUMBER, 5, "0.023");
+    parsing_numbers_beyond_end_test("0.0231", 5, JTOK_NUMBER, 5, "0.023");
+
+    parsing_numbers_beyond_end_test("0.0e+123", 8, JTOK_NUMBER, 8, "0.0e+123");
+    parsing_numbers_beyond_end_test("0.0e-123", 8, JTOK_NUMBER, 8, "0.0e-123");
+
+    // End and end.
+    parsing_numbers_beyond_end_test("0.0e+123", 7, JTOK_NUMBER, 7, "0.0e+12");
+    parsing_numbers_beyond_end_test("0.0e-123", 7, JTOK_NUMBER, 7, "0.0e-12");
 
     return 0;
 }
