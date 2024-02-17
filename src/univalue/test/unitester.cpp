@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <iostream>
 #include <string>
 
 #ifndef JSON_TEST_SRC
@@ -32,6 +33,7 @@ static void runtest(std::string filename, const std::string& jdata)
 
         UniValue val;
         bool testResult = val.read(jdata);
+        std::cout << "Running " << filename << std::endl;
 
         if (wantPass) {
             assert(testResult == true);
@@ -229,6 +231,35 @@ void parsing_numbers_beyond_end_test(const std::string& toParse, size_t size,
     assert(tokenVal == expectedTokenVal);
 }
 
+void exhaustive_short_string_test() {
+  // 3 runs 16777216 iterations, which is fast - 3.7s under valgrind.
+  // 4 runs 4294967296 iterations: 21 sec w/o valgrind; 13 minutes with.
+  // 5 runs 1099511627776: about 1.5 hours w/o valgrind.
+  const int bytes_enumerated = 3;
+  assert(bytes_enumerated <= 7);  // otherwise we overflow uint64_t.
+  for(int num_chars = 1; num_chars <= bytes_enumerated; ++num_chars) {
+    std::vector<char> data(num_chars);
+    unsigned long long max_data_idx = 1ULL << (num_chars * 8);
+    std::cout << "Running " << max_data_idx << " iterations for inputs of " << num_chars << " bytes." << std::endl;
+    for(size_t data_idx = 0; data_idx < max_data_idx; ++data_idx) {
+      // Fill in data by converting data_idx into a base-256 number.
+      // We mirror the bytes in data to have the char_idx be simpler.
+      int char_idx = 0;
+      size_t num = data_idx;
+      while (num > 0) {
+        assert(char_idx >= 0);
+        assert(char_idx < num_chars);
+        data[char_idx] = num % 256;
+        num /= 256;
+        ++char_idx;
+      }
+      // Call getJsonToken on the input.
+      std::string tokenVal = "";
+      unsigned int consumed = 0;
+      getJsonToken(tokenVal, consumed, data.data(), data.data() + num_chars);
+    }
+  }
+}
 
 int main (int argc, char *argv[])
 {
@@ -285,6 +316,9 @@ int main (int argc, char *argv[])
     // End and end.
     parsing_numbers_beyond_end_test("0.0e+123", 7, JTOK_NUMBER, 7, "0.0e+12");
     parsing_numbers_beyond_end_test("0.0e-123", 7, JTOK_NUMBER, 7, "0.0e-12");
+
+    // For valgrind to find accesses past input string.
+    exhaustive_short_string_test();
 
     return 0;
 }
