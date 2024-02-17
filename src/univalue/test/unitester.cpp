@@ -280,6 +280,11 @@ int main (int argc, char *argv[])
     parsing_numbers_beyond_end_test("-0", 2, JTOK_NUMBER, 2, "-0");
 
     // Leading 0s not OK.
+    parsing_numbers_beyond_end_test("01", 2, JTOK_ERR);
+    // However, OK if we are only read the 0.
+    parsing_numbers_beyond_end_test("01", 1, JTOK_NUMBER, 1, "0");
+
+    // Leading 0s not OK, with sign.
     parsing_numbers_beyond_end_test("-01", 3, JTOK_ERR);
     // However, OK if we are only reading 2 characters.
     parsing_numbers_beyond_end_test("-01", 2, JTOK_NUMBER, 2, "-0");
